@@ -72,6 +72,53 @@ log_dim() {
     echo -e "     ${TN_MUTED}┆ $1${RESET}"
 }
 
+run_with_spinner() {
+    local label="$1"
+    local progress="$2"
+    shift 2
+    local cmd=("$@")
+
+    local prefix=""
+    if [ -n "$progress" ]; then
+        prefix="${TN_MUTED}${progress}${RESET} "
+    fi
+
+    if [ ! -t 1 ]; then
+        log_dim "${progress} Menginstal $label..."
+        "${cmd[@]}" >/dev/null 2>&1
+        return $?
+    fi
+
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local spin_count=${#frames[@]}
+    local i=0
+
+    tput civis 2>/dev/null || true
+
+    "${cmd[@]}" >/tmp/tn_setup_cmd.log 2>&1 &
+    local pid=$!
+
+    while kill -0 $pid 2>/dev/null; do
+        local frame="${frames[$i]}"
+        echo -ne "\r     ${prefix}${TN_CYAN}${BOLD}${frame}${RESET} ${TN_TEXT}Menginstal ${TN_PURPLE}${BOLD}${label}${RESET}... ${TN_MUTED}(proses berlangsung)${RESET}\033[K"
+        i=$(( (i + 1) % spin_count ))
+        sleep 0.08
+    done
+
+    wait $pid 2>/dev/null
+    local exit_code=$?
+
+    tput cnorm 2>/dev/null || true
+
+    if [ $exit_code -eq 0 ]; then
+        echo -e "\r     ${prefix}${TN_GREEN}✔ ${TN_TEXT}${label} ${TN_GREEN}berhasil dipasang.${RESET}\033[K"
+    else
+        echo -e "\r     ${prefix}${TN_YELLOW}⚠ ${TN_TEXT}${label} ${TN_YELLOW}sudah terinstal atau tidak memerlukan pembaruan.${RESET}\033[K"
+    fi
+
+    return $exit_code
+}
+
 # ==============================================================================
 # SETUP SCRIPT EXECUTION
 # ==============================================================================
@@ -91,16 +138,11 @@ if command -v brew >/dev/null 2>&1; then
     log_success "Homebrew (brew) terdeteksi."
 else
     log_warn "Homebrew (brew) tidak ditemukan. Memulai instalasi Homebrew..."
-    log_dim "Mengunduh dan memasang Homebrew..."
-    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
-        if [ -f "/opt/homebrew/bin/brew" ]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [ -f "/usr/local/bin/brew" ]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
-        log_success "Homebrew berhasil dipasang."
-    else
-        log_error "Gagal memasang Homebrew."
+    run_with_spinner "Homebrew" "" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    if [ -f "/opt/homebrew/bin/brew" ]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f "/usr/local/bin/brew" ]; then
+        eval "$(/usr/local/bin/brew shellenv)"
     fi
 fi
 
@@ -110,13 +152,7 @@ if command -v curl >/dev/null 2>&1; then
 else
     log_warn "cURL (curl) tidak ditemukan. Memulai instalasi cURL..."
     if command -v brew >/dev/null 2>&1; then
-        log_dim "Menginstal curl via Homebrew..."
-        brew install curl
-    fi
-    if command -v curl >/dev/null 2>&1; then
-        log_success "cURL berhasil dipasang."
-    else
-        log_error "Gagal memasang cURL."
+        run_with_spinner "cURL" "" brew install curl
     fi
 fi
 
@@ -126,13 +162,7 @@ if command -v gh >/dev/null 2>&1; then
 else
     log_warn "GitHub CLI (gh) tidak ditemukan. Memulai instalasi GitHub CLI (gh)..."
     if command -v brew >/dev/null 2>&1; then
-        log_dim "Menginstal gh via Homebrew..."
-        brew install gh
-    fi
-    if command -v gh >/dev/null 2>&1; then
-        log_success "GitHub CLI (gh) berhasil dipasang."
-    else
-        log_error "Gagal memasang GitHub CLI (gh)."
+        run_with_spinner "GitHub CLI" "" brew install gh
     fi
 fi
 
@@ -141,100 +171,73 @@ if [ -d "${ZSH:-$HOME/.oh-my-zsh}" ]; then
     log_success "Oh My Zsh terdeteksi."
 else
     log_warn "Oh My Zsh tidak ditemukan. Memulai instalasi Oh My Zsh..."
-    log_dim "Mengunduh dan memasang Oh My Zsh..."
-    if sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; then
-        log_success "Oh My Zsh berhasil dipasang."
-    else
-        log_error "Gagal memasang Oh My Zsh."
-    fi
+    run_with_spinner "Oh My Zsh" "" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 fi
+
 # ==============================================================================
 # LANGUAGE VERSION MANAGER INSTALLERS WITH PRE-CHECKS
 # ==============================================================================
 
 install_nodejs_nvm() {
+    local progress="${1:-}"
     export NVM_DIR="$HOME/.nvm"
     if [ -s "$NVM_DIR/nvm.sh" ] || command -v nvm >/dev/null 2>&1; then
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        log_success "NVM terdeteksi ($(node -v 2>/dev/null || echo 'Node.js aktif'))."
+        log_success "${progress:+$progress }NVM terdeteksi ($(node -v 2>/dev/null || echo 'Node.js aktif'))."
     else
-        log_dim "NVM tidak ditemukan. Mengunduh dan memasang NVM..."
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh 2>/dev/null | bash 2>/dev/null
+        log_dim "${progress:+$progress }NVM tidak ditemukan. Mengunduh dan memasang NVM..."
+        run_with_spinner "NVM" "$progress" bash -c "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh 2>/dev/null | bash"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
         if command -v nvm >/dev/null 2>&1 || [ -s "$NVM_DIR/nvm.sh" ]; then
-            log_dim "Menginstal Node.js versi terbaru (latest) via NVM..."
-            nvm install node >/dev/null 2>&1
-            nvm use node >/dev/null 2>&1
-            nvm alias default node >/dev/null 2>&1
-            log_success "NVM & Node.js versi terbaru berhasil dipasang."
-        else
-            log_error "Gagal memasang NVM / Node.js."
+            run_with_spinner "Node.js (latest)" "$progress" bash -c "nvm install node && nvm alias default node"
         fi
     fi
 }
 
 install_python_pyenv() {
+    local progress="${1:-}"
     export PYENV_ROOT="$HOME/.pyenv"
     if command -v pyenv >/dev/null 2>&1 || [ -d "$PYENV_ROOT" ]; then
-        log_success "pyenv (Python Version Manager) terdeteksi."
+        log_success "${progress:+$progress }pyenv (Python Version Manager) terdeteksi."
     else
-        log_dim "pyenv tidak ditemukan. Memasang pyenv via Homebrew..."
-        brew install pyenv 2>/dev/null
+        run_with_spinner "pyenv" "$progress" brew install pyenv
         if command -v pyenv >/dev/null 2>&1 || [ -f "$(brew --prefix 2>/dev/null)/bin/pyenv" ]; then
             export PATH="$PYENV_ROOT/bin:$PATH"
             eval "$(pyenv init - 2>/dev/null)" || true
-            log_dim "Menginstal Python 3 terbaru via pyenv..."
             latest_py=$(pyenv install --list 2>/dev/null | grep -E '^\s*3\.[0-9]+\.[0-9]+$' | tail -1 | tr -d ' ')
             if [ -n "$latest_py" ]; then
-                pyenv install -s "$latest_py" 2>/dev/null
-                pyenv global "$latest_py" 2>/dev/null
-                log_success "pyenv & Python ($latest_py) berhasil dipasang."
-            else
-                log_success "pyenv berhasil dipasang."
+                run_with_spinner "Python ($latest_py)" "$progress" bash -c "pyenv install -s $latest_py && pyenv global $latest_py"
             fi
-        else
-            log_error "Gagal memasang pyenv."
         fi
     fi
 }
 
 install_go_goenv() {
+    local progress="${1:-}"
     export GOENV_ROOT="$HOME/.goenv"
     if command -v goenv >/dev/null 2>&1 || [ -d "$GOENV_ROOT" ]; then
-        log_success "goenv (Go Version Manager) terdeteksi."
+        log_success "${progress:+$progress }goenv (Go Version Manager) terdeteksi."
     else
-        log_dim "goenv tidak ditemukan. Memasang goenv via Homebrew..."
-        brew install goenv 2>/dev/null
+        run_with_spinner "goenv" "$progress" brew install goenv
         if command -v goenv >/dev/null 2>&1 || [ -f "$(brew --prefix 2>/dev/null)/bin/goenv" ]; then
             export PATH="$GOENV_ROOT/bin:$PATH"
             eval "$(goenv init - 2>/dev/null)" || true
-            log_dim "Menginstal Go versi terbaru via goenv..."
             latest_go=$(goenv install --list 2>/dev/null | grep -E '^\s*[0-9]+\.[0-9]+\.[0-9]+$' | tail -1 | tr -d ' ')
             if [ -n "$latest_go" ]; then
-                goenv install -s "$latest_go" 2>/dev/null
-                goenv global "$latest_go" 2>/dev/null
-                log_success "goenv & Go ($latest_go) berhasil dipasang."
-            else
-                log_success "goenv berhasil dipasang."
+                run_with_spinner "Go ($latest_go)" "$progress" bash -c "goenv install -s $latest_go && goenv global $latest_go"
             fi
-        else
-            log_error "Gagal memasang goenv."
         fi
     fi
 }
 
 install_rust_rustup() {
+    local progress="${1:-}"
     export CARGO_HOME="$HOME/.cargo"
     if command -v rustup >/dev/null 2>&1 || [ -f "$CARGO_HOME/bin/rustup" ]; then
-        log_success "rustup (Rust Toolchain Manager) terdeteksi."
+        log_success "${progress:+$progress }rustup (Rust Toolchain Manager) terdeteksi."
     else
-        log_dim "rustup tidak ditemukan. Memulai instalasi Rustup..."
-        if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs 2>/dev/null | sh -s -- -y 2>/dev/null; then
-            [ -f "$CARGO_HOME/env" ] && \. "$CARGO_HOME/env"
-            log_success "rustup & Rust toolchain ($(rustc --version 2>/dev/null || echo 'stable')) berhasil dipasang."
-        else
-            log_error "Gagal memasang rustup."
-        fi
+        run_with_spinner "rustup" "$progress" bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+        [ -f "$CARGO_HOME/env" ] && \. "$CARGO_HOME/env"
     fi
 }
 
@@ -245,12 +248,11 @@ install_rust_rustup() {
 install_programming_runtimes() {
     echo ""
     log_step "Memasang Programming Runtimes..."
-    install_nodejs_nvm
-    install_python_pyenv
-    install_go_goenv
-    install_rust_rustup
-    log_dim "Menginstal Bun..."
-    brew install bun 2>/dev/null || log_warn "bun sudah terinstal."
+    install_nodejs_nvm "[1/5]"
+    install_python_pyenv "[2/5]"
+    install_go_goenv "[3/5]"
+    install_rust_rustup "[4/5]"
+    run_with_spinner "Bun" "[5/5]" brew install bun
     log_success "Instalasi Programming Runtimes selesai."
 }
 
@@ -259,13 +261,16 @@ install_dev_tools() {
     log_step "Memasang Development Tools..."
     local formula=("neovim" "tmux" "git")
     local casks=("visual-studio-code" "docker")
+    local total=$(( ${#formula[@]} + ${#casks[@]} ))
+    local idx=1
+
     for pkg in "${formula[@]}"; do
-        log_dim "Menginstal $pkg..."
-        brew install "$pkg" 2>/dev/null || log_warn "$pkg sudah terinstal."
+        run_with_spinner "$pkg" "[$idx/$total]" brew install "$pkg"
+        ((idx++))
     done
     for cask in "${casks[@]}"; do
-        log_dim "Menginstal cask $cask..."
-        brew install --cask "$cask" 2>/dev/null || log_warn "$cask sudah terinstal."
+        run_with_spinner "$cask" "[$idx/$total]" brew install --cask "$cask"
+        ((idx++))
     done
     log_success "Instalasi Development Tools selesai."
 }
@@ -274,9 +279,11 @@ install_entertainment_apps() {
     echo ""
     log_step "Memasang Entertainment Apps..."
     local casks=("vlc" "spotify" "stremio")
+    local total=${#casks[@]}
+    local idx=1
     for cask in "${casks[@]}"; do
-        log_dim "Menginstal cask $cask..."
-        brew install --cask "$cask" 2>/dev/null || log_warn "$cask sudah terinstal."
+        run_with_spinner "$cask" "[$idx/$total]" brew install --cask "$cask"
+        ((idx++))
     done
     log_success "Instalasi Entertainment Apps selesai."
 }
@@ -285,9 +292,11 @@ install_social_media_apps() {
     echo ""
     log_step "Memasang Social Media Apps..."
     local casks=("telegram" "whatsapp" "discord" "slack")
+    local total=${#casks[@]}
+    local idx=1
     for cask in "${casks[@]}"; do
-        log_dim "Menginstal cask $cask..."
-        brew install --cask "$cask" 2>/dev/null || log_warn "$cask sudah terinstal."
+        run_with_spinner "$cask" "[$idx/$total]" brew install --cask "$cask"
+        ((idx++))
     done
     log_success "Instalasi Social Media Apps selesai."
 }
@@ -423,33 +432,39 @@ interactive_checkbox_menu() {
     echo ""
     log_step "Memulai Instalasi Paket Terpilih..."
 
-    local any_selected=0
+    local total_selected=0
+    for ((i=0; i<count; i++)); do
+        [ "${selected[i]}" -eq 1 ] && ((total_selected++))
+    done
+
+    local current_idx=1
     for ((i=0; i<count; i++)); do
         if [ "${selected[i]}" -eq 1 ]; then
-            any_selected=1
+            local progress="[$current_idx/$total_selected]"
             case $i in
-                0) install_nodejs_nvm ;;
-                1) install_python_pyenv ;;
-                2) install_go_goenv ;;
-                3) install_rust_rustup ;;
-                4) log_dim "Menginstal bun..."; brew install bun 2>/dev/null || log_warn "bun sudah terinstal." ;;
-                5) log_dim "Menginstal neovim..."; brew install neovim 2>/dev/null || log_warn "neovim sudah terinstal." ;;
-                6) log_dim "Menginstal tmux..."; brew install tmux 2>/dev/null || log_warn "tmux sudah terinstal." ;;
-                7) log_dim "Menginstal git..."; brew install git 2>/dev/null || log_warn "git sudah terinstal." ;;
-                8) log_dim "Menginstal VS Code..."; brew install --cask visual-studio-code 2>/dev/null || log_warn "VS Code sudah terinstal." ;;
-                9) log_dim "Menginstal Docker..."; brew install --cask docker 2>/dev/null || log_warn "Docker sudah terinstal." ;;
-                10) log_dim "Menginstal VLC..."; brew install --cask vlc 2>/dev/null || log_warn "VLC sudah terinstal." ;;
-                11) log_dim "Menginstal Spotify..."; brew install --cask spotify 2>/dev/null || log_warn "Spotify sudah terinstal." ;;
-                12) log_dim "Menginstal Stremio..."; brew install --cask stremio 2>/dev/null || log_warn "Stremio sudah terinstal." ;;
-                13) log_dim "Menginstal Telegram..."; brew install --cask telegram 2>/dev/null || log_warn "Telegram sudah terinstal." ;;
-                14) log_dim "Menginstal WhatsApp..."; brew install --cask whatsapp 2>/dev/null || log_warn "WhatsApp sudah terinstal." ;;
-                15) log_dim "Menginstal Discord..."; brew install --cask discord 2>/dev/null || log_warn "Discord sudah terinstal." ;;
-                16) log_dim "Menginstal Slack..."; brew install --cask slack 2>/dev/null || log_warn "Slack sudah terinstal." ;;
+                0) install_nodejs_nvm "$progress" ;;
+                1) install_python_pyenv "$progress" ;;
+                2) install_go_goenv "$progress" ;;
+                3) install_rust_rustup "$progress" ;;
+                4) run_with_spinner "Bun" "$progress" brew install bun ;;
+                5) run_with_spinner "Neovim" "$progress" brew install neovim ;;
+                6) run_with_spinner "Tmux" "$progress" brew install tmux ;;
+                7) run_with_spinner "Git" "$progress" brew install git ;;
+                8) run_with_spinner "VS Code" "$progress" brew install --cask visual-studio-code ;;
+                9) run_with_spinner "Docker" "$progress" brew install --cask docker ;;
+                10) run_with_spinner "VLC" "$progress" brew install --cask vlc ;;
+                11) run_with_spinner "Spotify" "$progress" brew install --cask spotify ;;
+                12) run_with_spinner "Stremio" "$progress" brew install --cask stremio ;;
+                13) run_with_spinner "Telegram" "$progress" brew install --cask telegram ;;
+                14) run_with_spinner "WhatsApp" "$progress" brew install --cask whatsapp ;;
+                15) run_with_spinner "Discord" "$progress" brew install --cask discord ;;
+                16) run_with_spinner "Slack" "$progress" brew install --cask slack ;;
             esac
+            ((current_idx++))
         fi
     done
 
-    if [ "$any_selected" -eq 0 ]; then
+    if [ "$total_selected" -eq 0 ]; then
         log_info "Tidak ada aplikasi yang dipilih untuk diinstal."
     else
         log_success "Semua aplikasi yang dipilih telah selesai dipasang."
@@ -492,3 +507,4 @@ else
     fi
 fi
 
+echo -e "\n${TN_TEAL}${ITALIC}✨ Setup Tokyo Night Selesai!${RESET}\n"
