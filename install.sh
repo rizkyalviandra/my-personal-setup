@@ -241,6 +241,51 @@ install_rust_rustup() {
     fi
 }
 
+install_flutter() {
+    local progress="${1:-}"
+    if command -v flutter >/dev/null 2>&1; then
+        log_success "${progress:+$progress }Flutter SDK terdeteksi ($(flutter --version 2>/dev/null | head -n 1 || echo 'Flutter aktif'))."
+    else
+        run_with_spinner "Flutter SDK" "$progress" brew install --cask flutter
+    fi
+}
+
+install_xcode() {
+    local progress="${1:-}"
+    if xcode-select -p >/dev/null 2>&1; then
+        log_success "${progress:+$progress }Xcode Command Line Tools terdeteksi ($(xcode-select -p))."
+    else
+        log_info "${progress:+$progress }Memasang Xcode Command Line Tools..."
+        xcode-select --install >/dev/null 2>&1 || true
+    fi
+
+    if [ -d "/Applications/Xcode.app" ]; then
+        log_success "${progress:+$progress }Xcode.app terdeteksi."
+    else
+        log_warn "${progress:+$progress }Xcode.app belum ditemukan di /Applications."
+        if command -v mas >/dev/null 2>&1 || brew list mas >/dev/null 2>&1; then
+            run_with_spinner "Xcode (App Store)" "$progress" mas install 497799835
+        else
+            log_info "${progress:+$progress }Memasang mas (Mac App Store CLI)..."
+            run_with_spinner "mas CLI" "$progress" brew install mas
+            if command -v mas >/dev/null 2>&1; then
+                run_with_spinner "Xcode (App Store)" "$progress" mas install 497799835
+            else
+                log_warn "Xcode.app dapat dipasang secara manual via Mac App Store."
+            fi
+        fi
+    fi
+}
+
+install_android_studio() {
+    local progress="${1:-}"
+    if [ -d "/Applications/Android Studio.app" ] || command -v studio >/dev/null 2>&1 || brew list --cask android-studio >/dev/null 2>&1; then
+        log_success "${progress:+$progress }Android Studio terdeteksi."
+    else
+        run_with_spinner "Android Studio" "$progress" brew install --cask android-studio
+    fi
+}
+
 # ==============================================================================
 # CATEGORY INSTALLERS
 # ==============================================================================
@@ -273,6 +318,15 @@ install_dev_tools() {
         ((idx++))
     done
     log_success "Instalasi Development Tools selesai."
+}
+
+install_mobile_dev_tools() {
+    echo ""
+    log_step "Memasang Mobile Development Tools..."
+    install_flutter "[1/3]"
+    install_xcode "[2/3]"
+    install_android_studio "[3/3]"
+    log_success "Instalasi Mobile Development Tools selesai."
 }
 
 install_entertainment_apps() {
@@ -330,6 +384,9 @@ interactive_checkbox_menu() {
         "Git"
         "Visual Studio Code"
         "Docker"
+        "Flutter SDK"
+        "Xcode & CLI Tools"
+        "Android Studio"
         "VLC"
         "Spotify"
         "Stremio"
@@ -452,13 +509,16 @@ interactive_checkbox_menu() {
                 7) run_with_spinner "Git" "$progress" brew install git ;;
                 8) run_with_spinner "VS Code" "$progress" brew install --cask visual-studio-code ;;
                 9) run_with_spinner "Docker" "$progress" brew install --cask docker ;;
-                10) run_with_spinner "VLC" "$progress" brew install --cask vlc ;;
-                11) run_with_spinner "Spotify" "$progress" brew install --cask spotify ;;
-                12) run_with_spinner "Stremio" "$progress" brew install --cask stremio ;;
-                13) run_with_spinner "Telegram" "$progress" brew install --cask telegram ;;
-                14) run_with_spinner "WhatsApp" "$progress" brew install --cask whatsapp ;;
-                15) run_with_spinner "Discord" "$progress" brew install --cask discord ;;
-                16) run_with_spinner "Slack" "$progress" brew install --cask slack ;;
+                10) install_flutter "$progress" ;;
+                11) install_xcode "$progress" ;;
+                12) install_android_studio "$progress" ;;
+                13) run_with_spinner "VLC" "$progress" brew install --cask vlc ;;
+                14) run_with_spinner "Spotify" "$progress" brew install --cask spotify ;;
+                15) run_with_spinner "Stremio" "$progress" brew install --cask stremio ;;
+                16) run_with_spinner "Telegram" "$progress" brew install --cask telegram ;;
+                17) run_with_spinner "WhatsApp" "$progress" brew install --cask whatsapp ;;
+                18) run_with_spinner "Discord" "$progress" brew install --cask discord ;;
+                19) run_with_spinner "Slack" "$progress" brew install --cask slack ;;
             esac
             ((current_idx++))
         fi
@@ -480,13 +540,14 @@ log_step "Step 3: Pilih Paket Aplikasi yang Ingin Diinstal"
 echo -e "   ${TN_TEXT}Pilih opsi instalasi yang Anda inginkan:${RESET}"
 echo -e "   ${TN_PURPLE}1)${RESET} ${TN_TEXT}Programming Runtimes${RESET} ${TN_MUTED}(Node.js via NVM, Python via pyenv, Go via goenv, Rust via rustup, Bun)${RESET}"
 echo -e "   ${TN_PURPLE}2)${RESET} ${TN_TEXT}Development Tools${RESET}    ${TN_MUTED}(VS Code, Neovim, Tmux, Docker, Git)${RESET}"
-echo -e "   ${TN_PURPLE}3)${RESET} ${TN_TEXT}Entertainment Apps${RESET}   ${TN_MUTED}(VLC, Spotify, Stremio)${RESET}"
-echo -e "   ${TN_PURPLE}4)${RESET} ${TN_TEXT}Social Media Apps${RESET}    ${TN_MUTED}(Telegram, WhatsApp, Discord, Slack)${RESET}"
-echo -e "   ${TN_PURPLE}5)${RESET} ${TN_TEXT}Custom Selection${RESET}     ${TN_MUTED}(Daftar interaktif per-item dengan Spacebar [✔])${RESET}"
+echo -e "   ${TN_PURPLE}3)${RESET} ${TN_TEXT}Mobile Dev Tools${RESET}     ${TN_MUTED}(Flutter SDK, Xcode, Android Studio)${RESET}"
+echo -e "   ${TN_PURPLE}4)${RESET} ${TN_TEXT}Entertainment Apps${RESET}   ${TN_MUTED}(VLC, Spotify, Stremio)${RESET}"
+echo -e "   ${TN_PURPLE}5)${RESET} ${TN_TEXT}Social Media Apps${RESET}    ${TN_MUTED}(Telegram, WhatsApp, Discord, Slack)${RESET}"
+echo -e "   ${TN_PURPLE}6)${RESET} ${TN_TEXT}Custom Selection${RESET}     ${TN_MUTED}(Daftar interaktif per-item dengan Spacebar [✔])${RESET}"
 echo ""
 
 if [ -t 0 ]; then
-    read -rp "$(echo -e "${TN_CYAN}${BOLD}   Masukkan pilihan (misal: 1,2 atau 5 / 'all' / kosongkan untuk lewati): ${RESET}")" user_choice
+    read -rp "$(echo -e "${TN_CYAN}${BOLD}   Masukkan pilihan (misal: 1,2 atau 6 / 'all' / kosongkan untuk lewati): ${RESET}")" user_choice
 else
     user_choice=""
 fi
@@ -494,17 +555,17 @@ fi
 if [[ "$user_choice" =~ "all" || "$user_choice" =~ "ALL" ]]; then
     install_programming_runtimes
     install_dev_tools
+    install_mobile_dev_tools
     install_entertainment_apps
     install_social_media_apps
 else
     [[ "$user_choice" =~ "1" ]] && install_programming_runtimes
     [[ "$user_choice" =~ "2" ]] && install_dev_tools
-    [[ "$user_choice" =~ "3" ]] && install_entertainment_apps
-    [[ "$user_choice" =~ "4" ]] && install_social_media_apps
-    if [[ "$user_choice" =~ "5" ]]; then
+    [[ "$user_choice" =~ "3" ]] && install_mobile_dev_tools
+    [[ "$user_choice" =~ "4" ]] && install_entertainment_apps
+    [[ "$user_choice" =~ "5" ]] && install_social_media_apps
+    if [[ "$user_choice" =~ "6" ]]; then
         echo ""
         interactive_checkbox_menu
     fi
 fi
-
-echo -e "\n${TN_TEAL}${ITALIC}✨ Setup Tokyo Night Selesai!${RESET}\n"
